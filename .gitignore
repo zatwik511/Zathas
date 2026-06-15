@@ -1,0 +1,29 @@
+# Build output
+build/
+
+# Logs
+*.log
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Model files (too large for git)
+*.gguf
+*.bin
+*.ggml
+models/**
+!models/.gitkeep
+
+# Node / frontend
+node_modules/
+frontend-react/dist/
+
+# IDE / OS
+.vscode/
+.vs/
+*.user
+Thumbs.db
+.DS_Store
+desktop.ini

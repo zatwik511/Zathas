@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fix 100vh > visible viewport on Windows Chrome (auto-hidden taskbar, DPI scaling).
+   --app-height is set by the inline script in index.html to window.innerHeight. */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+#root {
+  height: var(--app-height, 100vh);
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Electrolize', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: 0.01em;
+}
+
+/* Zen Dots display headings */
+.font-heading { font-family: 'Zen Dots', 'Electrolize', sans-serif; }
+
+/* ── Sci-fi ambient background: purple-black base + neon grid + violet glow ────── */
+.bg-techy {
+  background-color: #08010f;
+  background-image:
+    radial-gradient(60rem 42rem at 50% -12%, rgba(168, 85, 247, 0.22), transparent 70%),
+    radial-gradient(48rem 40rem at 112% 8%, rgba(217, 70, 239, 0.14), transparent 70%),
+    radial-gradient(46rem 40rem at -8% 60%, rgba(124, 58, 237, 0.12), transparent 70%),
+    linear-gradient(to right, rgba(168, 85, 247, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(168, 85, 247, 0.06) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 2.5rem 2.5rem, 2.5rem 2.5rem;
+}
+
+/* Neon-purple gradient text for the brand / hero headline */
+.text-gradient {
+  background-image: linear-gradient(110deg, #e9d5ff 0%, #c084fc 45%, #f0abfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Sci-fi neon text glow for headings */
+.text-glow {
+  text-shadow: 0 0 18px rgba(192, 132, 252, 0.45), 0 0 40px rgba(168, 85, 247, 0.25);
+}
+
+/* Custom slim scrollbar with a purple tint */
+.scroll-slim::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-slim::-webkit-scrollbar-track { background: transparent; }
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.22);
+}
+.scroll-slim::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.40);
+}
+
+@layer utilities {
+  .animate-cursor {
+    animation: cursor-blink 1s step-end infinite;
+  }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Slightly larger, more readable chat body text (prose-sm locks 14px) */
+.prose-sm { font-size: 0.9375rem; }
+
+/* Override typography plugin for code blocks so hljs styling shows through */
+.prose pre {
+  @apply p-0 bg-transparent overflow-hidden;
+}
+
+.prose pre code.hljs {
+  @apply block p-4 leading-relaxed;
+  font-size: 0.8125rem;
+}
+
+/* Code block with header (language label + copy button) */
+.code-block {
+  @apply my-3 border border-white/10 overflow-hidden;
+}
+.code-head {
+  @apply flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/10;
+}
+.code-lang {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  @apply text-[11px] tracking-wide text-zinc-500 uppercase;
+}
+.code-copy {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  @apply text-[11px] text-zinc-400 transition-colors;
+}
+.code-copy:hover { @apply text-fuchsia-400; }
+.code-block > pre { @apply m-0; }
+
+/* Respect users who prefer reduced motion — disable the fancy animations. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

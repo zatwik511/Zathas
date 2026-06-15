@@ -1,0 +1,38 @@
+#pragma once
+#include "inference.h"
+#include "docstore.h"
+#include "rate_limit.h"
+#include <httplib.h>
+#include <string>
+#include <memory>
+
+struct ServerConfig {
+    std::string host         = "0.0.0.0";
+    int         port         = 8080;
+    std::string static_dir   = "./frontend";
+    int         max_tokens   = 512;
+    float       temperature  = 0.7f;
+
+    // Groq credentials/models for cloud chat + multimodal handling.
+    std::string groq_api_key;                                   // enables vision + Whisper
+    std::string vision_model  = "meta-llama/llama-4-scout-17b-16e-instruct";
+    std::string whisper_model = "whisper-large-v3";
+};
+
+class ChatServer {
+public:
+    ChatServer(std::shared_ptr<IInferenceEngine> engine, const ServerConfig& config);
+
+    void run();
+    void shutdown();
+
+private:
+    std::shared_ptr<IInferenceEngine> engine_;   // cloud (Groq) or local model
+    ServerConfig                      cfg_;
+    DocStore                          doc_store_;
+    httplib::Server                   svr_;
+
+    // Per-IP rate limiters for cost-incurring endpoints.
+    RateLimiter chat_limiter_  {25, 60};   // 25 messages / minute / IP
+    RateLimiter media_limiter_ {15, 60};   // 15 uploads or transcriptions / minute / IP
+};
