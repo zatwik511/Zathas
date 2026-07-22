@@ -9,6 +9,10 @@ import { useConversations, genId } from './hooks/useConversations'
 
 const GITHUB_URL = 'https://github.com/zatwik511/Zathas-AI'
 
+// Docs whose content is sent as page images. These cost thousands of tokens per
+// request, so they are attached once and not re-sent on every follow-up turn.
+const MEDIA_KINDS = new Set(['image', 'pdf-vision', 'pdf-scanned'])
+
 const EXAMPLE_PROMPTS = [
   { label: 'How were you built?',  text: 'How were you built? Walk me through your tech stack.' },
   { label: 'Explain transformers', text: 'Explain how transformer models work, simply.' },
@@ -28,6 +32,20 @@ export default function App() {
   const bottomRef = useRef(null)
   const mainRef = useRef(null)
   const atBottomRef = useRef(true)
+  const sentMediaRef = useRef(new Set())
+
+  // Doc id to attach to an outgoing message. Text docs stay attached every turn
+  // (the model has no other copy of them). Image-bearing docs are sent only on
+  // the first turn after upload — re-sending the rendered pages on each message
+  // costs ~6k tokens a turn and trips the provider's per-minute token limit;
+  // later turns rely on the conversation history instead.
+  function outgoingDocId() {
+    if (!doc) return null
+    if (!MEDIA_KINDS.has(doc.kind)) return doc.id
+    if (sentMediaRef.current.has(doc.id)) return null
+    sentMediaRef.current.add(doc.id)
+    return doc.id
+  }
   const titledRef = useRef(new Set())   // conversation ids already given an AI title
   const skipPersistRef = useRef(false)  // skip the persist effect when merely loading a chat
   const lastLenRef = useRef(0)          // last message count we persisted at
@@ -202,7 +220,7 @@ export default function App() {
         {/* ── Main ───────────────────────────────────────────────────────────── */}
         <main ref={mainRef} onScroll={onMainScroll} className="flex-1 overflow-y-auto scroll-slim">
           {!hasMessages ? (
-            <Hero onPick={(text) => sendMessage(text, doc?.id)} />
+            <Hero onPick={(text) => sendMessage(text, outgoingDocId())} />
           ) : (
             <div className="max-w-3xl mx-auto px-4 py-8 space-y-7">
               {messages.map((msg, i) => (
@@ -237,7 +255,7 @@ export default function App() {
         {/* ── Input ──────────────────────────────────────────────────────────── */}
         <ChatInput
           accent="techy"
-          onSend={(text) => sendMessage(text, doc?.id)}
+          onSend={(text) => sendMessage(text, outgoingDocId())}
           disabled={streaming}
           streaming={streaming}
           onStop={stop}
