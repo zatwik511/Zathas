@@ -144,6 +144,18 @@ struct SSEParser {
     void finish() {
         if (!in_think && !hold.empty()) emit(hold);
         hold.clear();
+
+        // A reasoning model that exhausts its token budget mid-thought never
+        // emits </think>, so everything it produced is suppressed above and the
+        // user is left staring at an empty reply. Say what happened instead.
+        if (!seen_visible) {
+            static const std::string msg =
+                "(I ran out of room working through that one and didn't reach an "
+                "answer. Please try again, or ask for something more specific.)";
+            seen_visible   = true;
+            full_response += msg;
+            if (on_token) on_token(msg);
+        }
     }
 
     // Feed raw bytes; returns false to abort the connection.
@@ -185,13 +197,22 @@ std::string CloudInferenceEngine::generate(
     const DoneCallback&  on_done)
 {
     // Route to the vision model when an image is attached, otherwise the text model.
-    const std::string& use_model = ctx.image_b64.empty() ? model_ : vision_model_;
+    const bool         use_vision = !ctx.image_b64.empty();
+    const std::string& use_model  = use_vision ? vision_model_ : model_;
+
+    // The vision model reasons inside <think> before it writes anything the user
+    // sees, and that reasoning alone can run to ~500 tokens. At the default
+    // budget it regularly hits the cap mid-thought, leaving no answer at all, so
+    // give the vision path enough headroom for reasoning *and* a reply.
+    constexpr int VISION_MIN_TOKENS = 1536;
+    const int effective_max_tokens =
+        use_vision ? std::max(max_tokens, VISION_MIN_TOKENS) : max_tokens;
 
     const json body = {
         {"model",       use_model},
         {"messages",    build_messages(ctx)},
         {"stream",      true},
-        {"max_tokens",  max_tokens},
+        {"max_tokens",  effective_max_tokens},
         {"temperature", temperature}
     };
 
