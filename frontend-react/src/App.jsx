@@ -7,7 +7,7 @@ import Sidebar from './components/Sidebar'
 import { useChat } from './hooks/useChat'
 import { useConversations, genId } from './hooks/useConversations'
 
-const GITHUB_URL = 'https://github.com/zatwik511/Zathas-AI'
+const GITHUB_URL = 'https://github.com/zatwik511/Zathas'
 
 // Docs whose content is sent as page images. These cost thousands of tokens per
 // request, so they are attached once and not re-sent on every follow-up turn.

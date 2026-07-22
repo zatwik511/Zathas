@@ -1,6 +1,8 @@
 #include "cloud_inference.h"
 #include <httplib.h>
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 
@@ -70,6 +72,27 @@ static json build_messages(const ContextLayers& ctx)
     return msgs;
 }
 
+// ── <think> stripping ─────────────────────────────────────────────────────────
+// Reasoning-capable models (the vision model is one) stream their chain of
+// thought inside <think>...</think> ahead of the actual answer. It is dropped
+// here rather than in the UI: anything forwarded to the client is kept in the
+// message state, persisted, and replayed as history on every later turn, so
+// hiding it at render time would still pay input tokens for it repeatedly.
+
+static constexpr const char* THINK_OPEN  = "<think>";
+static constexpr const char* THINK_CLOSE = "</think>";
+
+// Length of the longest suffix of `s` that is a proper prefix of `tag`. Used to
+// hold back a few trailing bytes in case a tag is split across two SSE chunks.
+static size_t partial_tag_suffix(const std::string& s, const char* tag)
+{
+    const size_t tag_len = std::strlen(tag);
+    for (size_t n = std::min(s.size(), tag_len - 1); n > 0; --n) {
+        if (s.compare(s.size() - n, n, tag, n) == 0) return n;
+    }
+    return 0;
+}
+
 // ── SSE chunk parser ──────────────────────────────────────────────────────────
 
 struct SSEParser {
@@ -78,7 +101,50 @@ struct SSEParser {
     const TokenCallback&     on_token;
     bool                     done = false;
 
+    std::string              hold;                 // bytes awaiting tag resolution
+    bool                     in_think = false;
+    bool                     seen_visible = false; // trims blank lines before the answer
+
     explicit SSEParser(const TokenCallback& cb) : on_token(cb) {}
+
+    void emit(const std::string& piece) {
+        std::string out = piece;
+        if (!seen_visible) {
+            const size_t i = out.find_first_not_of(" \t\r\n");
+            if (i == std::string::npos) return;   // still only whitespace
+            out.erase(0, i);
+            seen_visible = true;
+        }
+        full_response += out;
+        if (on_token) on_token(out);
+    }
+
+    // Feed one model token, emitting only the text outside <think> blocks.
+    void push(const std::string& tok) {
+        hold += tok;
+        for (;;) {
+            const char* tag = in_think ? THINK_CLOSE : THINK_OPEN;
+            const size_t p = hold.find(tag);
+            if (p != std::string::npos) {
+                if (!in_think && p > 0) emit(hold.substr(0, p));
+                hold.erase(0, p + std::strlen(tag));
+                in_think = !in_think;
+                continue;
+            }
+            const size_t keep = partial_tag_suffix(hold, tag);
+            if (hold.size() > keep) {
+                if (!in_think) emit(hold.substr(0, hold.size() - keep));
+                hold.erase(0, hold.size() - keep);
+            }
+            return;
+        }
+    }
+
+    // Flush whatever is still held once the stream ends.
+    void finish() {
+        if (!in_think && !hold.empty()) emit(hold);
+        hold.clear();
+    }
 
     // Feed raw bytes; returns false to abort the connection.
     bool feed(const char* data, size_t len) {
@@ -100,10 +166,7 @@ struct SSEParser {
                     const auto& delta = choices[0].at("delta");
                     if (delta.contains("content") && delta["content"].is_string()) {
                         const std::string tok = delta["content"].get<std::string>();
-                        if (!tok.empty()) {
-                            full_response += tok;
-                            if (on_token) on_token(tok);
-                        }
+                        if (!tok.empty()) push(tok);
                     }
                 }
             } catch (...) { /* skip malformed chunk */ }
@@ -174,6 +237,7 @@ std::string CloudInferenceEngine::generate(
                                  std::to_string(resp.status) + ": " + error_body);
     }
 
+    parser.finish();
     if (on_done) on_done();
     return parser.full_response;
 }

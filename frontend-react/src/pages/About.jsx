@@ -1,7 +1,7 @@
 import ZathasMark from '../components/ZathasMark'
 import Scanline from '../components/Scanline'
 
-const GITHUB_URL = 'https://github.com/zatwik511/Zathas-AI'
+const GITHUB_URL = 'https://github.com/zatwik511/Zathas'
 const EMAIL = 'sa7wik@gmail.com'
 
 const STACK = [
