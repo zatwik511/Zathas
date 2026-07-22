@@ -9,7 +9,7 @@ public:
     CloudInferenceEngine(std::string api_key,
                          std::string model = "llama-3.3-70b-versatile",
                          std::string host  = "api.groq.com",
-                         std::string vision_model = "meta-llama/llama-4-scout-17b-16e-instruct");
+                         std::string vision_model = "qwen/qwen3.6-27b");
 
     std::string generate(const ContextLayers& ctx,
                          int              max_tokens  = 512,

@@ -139,14 +139,27 @@ std::string CloudInferenceEngine::generate(
     SSEParser parser(on_token);
 
     // Use low-level send() so we can attach a streaming ContentReceiver to a POST.
+    // cpp-httplib routes the ENTIRE response body through content_receiver once
+    // it's set — including error bodies — so resp.body is never populated on
+    // failure. Capture the status via response_handler (fires before the body
+    // starts streaming) and divert non-200 bytes into error_body instead of
+    // feeding them to the SSE parser.
+    bool        error_status = false;
+    std::string error_body;
+
     httplib::Request req;
     req.method = "POST";
     req.path   = "/openai/v1/chat/completions";
     req.set_header("Authorization", "Bearer " + api_key_);
     req.set_header("Content-Type",  "application/json");
     req.body = body.dump();
+    req.response_handler = [&](const httplib::Response& r) {
+        error_status = (r.status != 200);
+        return true;
+    };
     req.content_receiver = [&](const char* data, size_t len,
                                 uint64_t /*offset*/, uint64_t /*total*/) {
+        if (error_status) { error_body.append(data, len); return true; }
         return parser.feed(data, len);
     };
 
@@ -158,7 +171,7 @@ std::string CloudInferenceEngine::generate(
     }
     if (resp.status != 200) {
         throw std::runtime_error("Cloud API returned HTTP " +
-                                 std::to_string(resp.status) + ": " + resp.body);
+                                 std::to_string(resp.status) + ": " + error_body);
     }
 
     if (on_done) on_done();
