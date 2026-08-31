@@ -7,7 +7,7 @@
 class CloudInferenceEngine : public IInferenceEngine {
 public:
     CloudInferenceEngine(std::string api_key,
-                         std::string model = "llama-3.3-70b-versatile",
+                         std::string model = "openai/gpt-oss-120b",
                          std::string host  = "api.groq.com",
                          std::string vision_model = "qwen/qwen3.6-27b");
 

@@ -47,7 +47,7 @@ static void print_usage(const char* prog)
         << ".env keys:\n"
         << "  MODEL_PATH   — local model file path (same as --model)\n"
         << "  GROQ_API_KEY — enables fast cloud inference + vision + voice\n"
-        << "  CLOUD_MODEL  — Groq model name (default: llama-3.3-70b-versatile)\n";
+        << "  CLOUD_MODEL  — Groq model name (default: openai/gpt-oss-120b)\n";
 }
 
 int main(int argc, char* argv[])
@@ -93,7 +93,7 @@ int main(int argc, char* argv[])
     const std::string groq_api_key = read_env_file(env_file, "GROQ_API_KEY");
     srv_cfg.groq_api_key = groq_api_key;   // enables vision + voice
     std::string cloud_model = read_env_file(env_file, "CLOUD_MODEL");
-    if (cloud_model.empty()) cloud_model = "llama-3.3-70b-versatile";
+    if (cloud_model.empty()) cloud_model = "openai/gpt-oss-120b";
 
     if (model_path.empty() && groq_api_key.empty()) {
         std::cerr << "Error: Need either --model <path> or GROQ_API_KEY in .env\n\n";
