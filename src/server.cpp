@@ -196,7 +196,7 @@ void ChatServer::run()
 
         std::string title;
         try {
-            title = engine_->generate(ctx, 16, 0.3f);
+            title = engine_->generate(ctx, 300, 0.3f);
         } catch (const std::exception& e) {
             res.status = 502;
             res.set_content(json{{"error", std::string("title generation failed: ") + e.what()}}.dump(),

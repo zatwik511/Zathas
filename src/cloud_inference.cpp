@@ -208,13 +208,18 @@ std::string CloudInferenceEngine::generate(
     const int effective_max_tokens =
         use_vision ? std::max(max_tokens, VISION_MIN_TOKENS) : max_tokens;
 
-    const json body = {
+    json body = {
         {"model",       use_model},
         {"messages",    build_messages(ctx)},
         {"stream",      true},
         {"max_tokens",  effective_max_tokens},
         {"temperature", temperature}
     };
+    // Keep the text model's chain-of-thought short — gpt-oss reasons in a
+    // separate `reasoning` field (not <think> tags in content) that we never
+    // read, so unbounded reasoning just eats max_tokens with nothing to show
+    // for it. Vision model (different family) doesn't support this field.
+    if (!use_vision) body["reasoning_effort"] = "low";
 
     httplib::SSLClient cli(host_);
     cli.set_connection_timeout(15);
