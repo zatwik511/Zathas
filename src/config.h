@@ -40,9 +40,32 @@ inline constexpr int kVisionMinTokens = 1536;
 inline constexpr int kTitleMaxTokens = 300;
 
 // ── Abuse limits ──────────────────────────────────────────────────────────────
+//
+// A public deployment spends the operator's provider quota on behalf of
+// anonymous visitors, so every cost-incurring endpoint is bounded twice: per-IP
+// (stops one visitor monopolising it) and per-day across everyone (stops the
+// whole quota going in an afternoon).
 inline constexpr int    kChatPerMinute   = 25;   // per IP, /api/chat + /api/title
 inline constexpr int    kMediaPerMinute  = 15;   // per IP, /api/upload + /api/transcribe
 inline constexpr int    kRateWindowSecs  = 60;
 inline constexpr size_t kMaxPayloadBytes = 10 * 1024 * 1024 + 4096;
+
+// Longest single message accepted. Anything larger is almost certainly abuse or
+// a bug: real prompts do not approach this, and the provider would reject it
+// anyway after we had already paid to send it.
+inline constexpr size_t kMaxMessageChars = 16000;
+
+// Total provider-billed requests served per UTC day, across all visitors.
+// Past this the service answers "at capacity" instead of spending more quota.
+inline constexpr int kDailyRequestCap = 2000;
+
+// Socket timeouts. Without these a stalled client can hold a worker open
+// indefinitely.
+inline constexpr int kReadTimeoutSecs  = 120;
+inline constexpr int kWriteTimeoutSecs = 120;
+
+// Extra origins allowed to call the API cross-site, comma-separated. Empty
+// means same-origin only, which is what a normal deployment wants.
+inline constexpr const char* kAllowedOrigins = "";
 
 }   // namespace config

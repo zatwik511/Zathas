@@ -67,6 +67,68 @@ void ChatServer::shutdown()
     svr_.stop();
 }
 
+bool ChatServer::admit(const httplib::Request& req, httplib::Response& res,
+                       RateLimiter& limiter)
+{
+    if (!limiter.allow(client_ip(req))) {
+        res.status = 429;
+        res.set_header("Retry-After", std::to_string(config::kRateWindowSecs));
+        res.set_content(json{{"error",
+            "You're sending requests too fast — please wait a moment."}}.dump(),
+            "application/json");
+        return false;
+    }
+    return true;
+}
+
+bool ChatServer::charge_daily(httplib::Response& res)
+{
+    if (daily_cap_.allow()) return true;
+    res.status = 503;
+    res.set_header("Retry-After", "3600");
+    res.set_content(json{{"error",
+        "This service is at capacity for today and will reset tomorrow. "
+        "You can run your own instance — see the project README."}}.dump(),
+        "application/json");
+    return false;
+}
+
+// Turns a backend failure into something worth showing a visitor. Provider
+// error bodies name models and quota internals that mean nothing to a user and
+// only invite confusion, so they are logged rather than displayed.
+static std::string user_facing_error(const std::exception& e)
+{
+    if (const auto* pe = dynamic_cast<const ProviderError*>(&e)) {
+        switch (pe->status()) {
+        case 0:   return "Couldn't reach the language model service. "
+                         "Please check your connection and try again.";
+        case 401:
+        case 403: return "This service isn't configured correctly right now. "
+                         "The operator has been notified.";
+        case 404: return "The configured model is unavailable. "
+                         "The operator has been notified.";
+        case 429: return "The service is busy right now — please try again in a moment.";
+        default:
+            if (pe->status() >= 500)
+                return "The language model service is having trouble. "
+                       "Please try again shortly.";
+            return "Something went wrong handling that request.";
+        }
+    }
+    return "Something went wrong handling that request.";
+}
+
+// Rejects a message that is too long before it costs anything to send.
+static bool check_message_length(const std::string& msg, httplib::Response& res)
+{
+    if (msg.size() <= config::kMaxMessageChars) return true;
+    res.status = 413;
+    res.set_content(json{{"error",
+        "That message is too long (" + std::to_string(msg.size()) + " characters, limit " +
+        std::to_string(config::kMaxMessageChars) + ")."}}.dump(), "application/json");
+    return false;
+}
+
 void ChatServer::run()
 {
     g_server = this;
@@ -75,19 +137,65 @@ void ChatServer::run()
 
     svr_.set_payload_max_length(config::kMaxPayloadBytes);
 
-    // ── GET /health ────────────────────────────────────────────────────────────
-    svr_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
-        res.set_content(R"({"status":"ok"})", "application/json");
-    });
+    // A stalled client must not hold a worker open indefinitely.
+    svr_.set_read_timeout(config::kReadTimeoutSecs, 0);
+    svr_.set_write_timeout(config::kWriteTimeoutSecs, 0);
+
+    // ── CORS ───────────────────────────────────────────────────────────────────
+    // The frontend is served by this same origin, so no cross-site access is
+    // needed and none is granted: without Access-Control-Allow-Origin, browsers
+    // refuse to hand the response to a page on another origin. Listing an origin
+    // in allowed_origins opts it in explicitly.
+    svr_.set_pre_routing_handler(
+        [this](const httplib::Request& req, httplib::Response& res) {
+            const std::string origin = req.get_header_value("Origin");
+            if (!origin.empty() && !cfg_.allowed_origins.empty()) {
+                std::stringstream ss(cfg_.allowed_origins);
+                std::string entry;
+                while (std::getline(ss, entry, ',')) {
+                    const auto a = entry.find_first_not_of(" \t");
+                    const auto b = entry.find_last_not_of(" \t");
+                    if (a == std::string::npos) continue;
+                    if (entry.substr(a, b - a + 1) == origin) {
+                        res.set_header("Access-Control-Allow-Origin", origin);
+                        res.set_header("Vary", "Origin");
+                        res.set_header("Access-Control-Allow-Headers",
+                                       "Content-Type, Authorization");
+                        res.set_header("Access-Control-Allow-Methods",
+                                       "GET, POST, DELETE, OPTIONS");
+                        break;
+                    }
+                }
+            }
+            // Answer preflights here. An origin that was not allowed above gets
+            // a 204 with no CORS headers, which the browser treats as a refusal.
+            if (req.method == "OPTIONS") {
+                res.status = 204;
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+
+    // ── GET /health, GET /api/health ───────────────────────────────────────────
+    // Deliberately cheap: no provider call, so an uptime monitor polling this
+    // costs nothing and cannot itself exhaust the daily budget.
+    const auto health = [this](const httplib::Request&, httplib::Response& res) {
+        const bool cloud = !cfg_.groq_api_key.empty();
+        res.set_content(json{
+            {"status",      engine_ ? "ok" : "degraded"},
+            {"backend",     cloud ? "groq" : "local"},
+            {"model",       cloud ? cfg_.cloud_model : std::string("local")},
+            {"modules",     server_modules::active_modules()},
+            {"daily_used",  daily_cap_.used()},
+            {"daily_limit", daily_cap_.limit()}
+        }.dump(), "application/json");
+    };
+    svr_.Get("/health",     health);
+    svr_.Get("/api/health", health);
 
     // ── POST /api/chat — public persona, SSE streaming ────────────────────────
     svr_.Post("/api/chat", [this](const httplib::Request& req, httplib::Response& res) {
-        if (!chat_limiter_.allow(client_ip(req))) {
-            res.status = 429;
-            res.set_content(json{{"error", "You're sending messages too fast — please wait a moment."}}.dump(),
-                            "application/json");
-            return;
-        }
+        if (!admit(req, res, chat_limiter_)) return;
         json body;
         try { body = json::parse(req.body); }
         catch (const std::exception& e) {
@@ -104,6 +212,7 @@ void ChatServer::run()
         }
 
         const std::string user_msg = body["message"].get<std::string>();
+        if (!check_message_length(user_msg, res)) return;
 
         ContextLayers ctx;
         ctx.system_prompt  = "You are Zathas, a helpful AI assistant. "
@@ -131,6 +240,9 @@ void ChatServer::run()
         }
         ctx.current_session.push_back({"user", user_msg});
 
+        // Validated and about to reach the provider — charge it now.
+        if (!charge_daily(res)) return;
+
         res.set_header("Cache-Control", "no-cache");
         res.set_header("X-Accel-Buffering", "no");
 
@@ -152,7 +264,10 @@ void ChatServer::run()
                         }
                     );
                 } catch (const std::exception& e) {
-                    write_sse(json{{"error", std::string(e.what())}}.dump());
+                    // The provider's raw body is useful in the log and useless
+                    // (or confusing) to a visitor, so it stays server-side.
+                    std::cerr << "[chat] generation failed: " << e.what() << "\n";
+                    write_sse(json{{"error", user_facing_error(e)}}.dump());
                 }
 
                 sink.done();
@@ -163,11 +278,7 @@ void ChatServer::run()
 
     // ── POST /api/title — short AI-generated conversation title ──────────────────
     svr_.Post("/api/title", [this](const httplib::Request& req, httplib::Response& res) {
-        if (!chat_limiter_.allow(client_ip(req))) {
-            res.status = 429;
-            res.set_content(json{{"error", "Rate limit exceeded."}}.dump(), "application/json");
-            return;
-        }
+        if (!admit(req, res, chat_limiter_)) return;
         if (!engine_) {
             res.status = 503;
             res.set_content(json{{"error", "No model available"}}.dump(), "application/json");
@@ -186,6 +297,8 @@ void ChatServer::run()
             res.set_content(json{{"error", "Missing message"}}.dump(), "application/json");
             return;
         }
+        if (!check_message_length(message, res)) return;
+        if (!check_message_length(reply, res)) return;
 
         ContextLayers ctx;
         ctx.system_prompt =
@@ -196,6 +309,8 @@ void ChatServer::run()
         if (!reply.empty()) convo += "\nAssistant: " + reply;
         if (convo.size() > 1500) convo = convo.substr(0, 1500);
         ctx.current_session.push_back({"user", convo});
+
+        if (!charge_daily(res)) return;
 
         std::string title;
         try {
@@ -219,11 +334,7 @@ void ChatServer::run()
 
     // ── POST /api/transcribe — speech-to-text for voice input (Whisper) ──────────
     svr_.Post("/api/transcribe", [this](const httplib::Request& req, httplib::Response& res) {
-        if (!media_limiter_.allow(client_ip(req))) {
-            res.status = 429;
-            res.set_content(json{{"error", "Too many requests — please wait a moment."}}.dump(), "application/json");
-            return;
-        }
+        if (!admit(req, res, media_limiter_)) return;
         if (cfg_.groq_api_key.empty()) {
             res.status = 503;
             res.set_content(json{{"error", "Voice input requires the cloud backend."}}.dump(), "application/json");
@@ -235,6 +346,8 @@ void ChatServer::run()
             return;
         }
         const auto& f = req.get_file_value("file");
+        if (!charge_daily(res)) return;
+
         std::string err;
         const std::string text = groq_transcribe(
             cfg_.groq_api_key, f.content,
@@ -249,11 +362,7 @@ void ChatServer::run()
 
     // ── POST /api/upload — accept any file type, route to the right processor ────
     svr_.Post("/api/upload", [this](const httplib::Request& req, httplib::Response& res) {
-        if (!media_limiter_.allow(client_ip(req))) {
-            res.status = 429;
-            res.set_content(json{{"error", "Too many uploads — please wait a moment."}}.dump(), "application/json");
-            return;
-        }
+        if (!admit(req, res, media_limiter_)) return;
         if (!req.has_file("file")) {
             res.status = 400;
             res.set_content(json{{"error", "No file field in request"}}.dump(), "application/json");
@@ -294,6 +403,8 @@ void ChatServer::run()
                 fail(503, "Audio transcription requires the cloud (Groq) backend.");
                 return;
             }
+            if (!charge_daily(res)) return;
+
             std::string err;
             const std::string transcript = groq_transcribe(
                 cfg_.groq_api_key, f.content, f.filename, cfg_.whisper_model, &err);

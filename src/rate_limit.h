@@ -40,3 +40,49 @@ private:
     std::mutex mu_;
     std::unordered_map<std::string, std::deque<std::chrono::steady_clock::time_point>> hits_;
 };
+
+// Service-wide cap on provider-billed requests per UTC day, shared across all
+// callers. The per-IP limiter above stops one visitor monopolising the service;
+// this stops all of them together exhausting the operator's quota.
+//
+// Deliberately in-memory: a restart forgives the count, which is the safer
+// failure direction for a small deployment (a bad restart loop degrades to "no
+// cap" rather than "permanently at capacity").
+class DailyCap {
+public:
+    explicit DailyCap(int max_per_day) : max_(max_per_day) {}
+
+    // Consumes one unit. Returns false once the day's budget is spent.
+    bool allow() {
+        std::lock_guard<std::mutex> lk(mu_);
+        roll_if_new_day();
+        if (used_ >= max_) return false;
+        ++used_;
+        return true;
+    }
+
+    int used() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        const_cast<DailyCap*>(this)->roll_if_new_day();
+        return used_;
+    }
+
+    int limit() const { return max_; }
+
+private:
+    // Days since the epoch in UTC; changes exactly at midnight UTC.
+    static long long today() {
+        const auto now = std::chrono::system_clock::now().time_since_epoch();
+        return std::chrono::duration_cast<std::chrono::hours>(now).count() / 24;
+    }
+
+    void roll_if_new_day() {
+        const long long d = today();
+        if (d != day_) { day_ = d; used_ = 0; }
+    }
+
+    int                max_;
+    int                used_ = 0;
+    long long          day_  = today();
+    mutable std::mutex mu_;
+};

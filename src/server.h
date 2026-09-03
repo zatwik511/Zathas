@@ -21,6 +21,10 @@ struct ServerConfig {
     std::string cloud_model   = config::kCloudModel;
     std::string vision_model  = config::kVisionModel;
     std::string whisper_model = config::kWhisperModel;
+
+    // Extra origins permitted to call the API cross-site, comma-separated.
+    // Empty means same-origin only.
+    std::string allowed_origins = config::kAllowedOrigins;
 };
 
 class ChatServer {
@@ -36,6 +40,15 @@ public:
     void shutdown();
 
 private:
+    // Per-IP admission, applied early so a flood is rejected cheaply.
+    bool admit(const httplib::Request& req, httplib::Response& res, RateLimiter& limiter);
+
+    // Spends one unit of the service-wide daily budget. Call this only once the
+    // request has passed validation and is definitely about to reach the
+    // provider — a request rejected as malformed or oversized costs nothing to
+    // serve, so charging it would let junk traffic exhaust the day's budget.
+    bool charge_daily(httplib::Response& res);
+
     std::shared_ptr<IInferenceEngine> engine_;   // cloud (Groq) or local model
     std::shared_ptr<IInferenceEngine> local_engine_;
     ServerConfig                      cfg_;
@@ -49,4 +62,7 @@ private:
     // Per-IP rate limiters for cost-incurring endpoints.
     RateLimiter chat_limiter_  {config::kChatPerMinute,  config::kRateWindowSecs};
     RateLimiter media_limiter_ {config::kMediaPerMinute, config::kRateWindowSecs};
+
+    // Service-wide budget, shared by every caller.
+    DailyCap    daily_cap_     {config::kDailyRequestCap};
 };
