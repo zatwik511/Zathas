@@ -210,9 +210,8 @@ std::string CloudInferenceEngine::generate(
     // sees, and that reasoning alone can run to ~500 tokens. At the default
     // budget it regularly hits the cap mid-thought, leaving no answer at all, so
     // give the vision path enough headroom for reasoning *and* a reply.
-    constexpr int VISION_MIN_TOKENS = 1536;
     const int effective_max_tokens =
-        use_vision ? std::max(max_tokens, VISION_MIN_TOKENS) : max_tokens;
+        use_vision ? std::max(max_tokens, config::kVisionMinTokens) : max_tokens;
 
     json body = {
         {"model",       use_model},
@@ -261,17 +260,86 @@ std::string CloudInferenceEngine::generate(
     httplib::Response resp;
     httplib::Error    err = httplib::Error::Success;
     if (!cli.send(req, resp, err)) {
-        throw std::runtime_error("Cloud API connection failed: " +
-                                 httplib::to_string(err));
+        throw ProviderError(0, "Groq connection failed: " + httplib::to_string(err));
     }
     if (resp.status != 200) {
-        throw std::runtime_error("Cloud API returned HTTP " +
-                                 std::to_string(resp.status) + ": " + error_body);
+        throw ProviderError(resp.status, "Groq returned HTTP " +
+                            std::to_string(resp.status) + ": " + error_body);
     }
 
     parser.finish();
     if (on_done) on_done();
     return parser.full_response;
+}
+
+// ── Startup validation ────────────────────────────────────────────────────────
+
+bool cloud_list_models(const std::string& api_key,
+                       std::vector<std::string>* out,
+                       std::string* err,
+                       const std::string& host)
+{
+    httplib::SSLClient cli(host);
+    cli.set_connection_timeout(10);
+    cli.set_read_timeout(15);
+
+    const httplib::Headers headers = {{"Authorization", "Bearer " + api_key}};
+    auto res = cli.Get("/openai/v1/models", headers);
+
+    if (!res) {
+        if (err) *err = "could not reach " + host + ": " + httplib::to_string(res.error());
+        return false;
+    }
+    if (res->status == 401 || res->status == 403) {
+        if (err) *err = "authentication rejected (HTTP " + std::to_string(res->status) +
+                        ") — check the API key";
+        return false;
+    }
+    if (res->status != 200) {
+        if (err) *err = "HTTP " + std::to_string(res->status) + " from " + host + ": " + res->body;
+        return false;
+    }
+
+    try {
+        const auto j = json::parse(res->body);
+        for (const auto& m : j.at("data"))
+            if (m.contains("id") && m["id"].is_string())
+                out->push_back(m["id"].get<std::string>());
+    } catch (const std::exception& e) {
+        if (err) *err = std::string("unexpected model-list response: ") + e.what();
+        return false;
+    }
+    return true;
+}
+
+bool cloud_check_model(const std::string& api_key,
+                       const std::string& model,
+                       std::string* err,
+                       const std::string& host)
+{
+    std::vector<std::string> models;
+    if (!cloud_list_models(api_key, &models, err, host)) return false;
+
+    if (std::find(models.begin(), models.end(), model) != models.end()) return true;
+
+    if (err) {
+        std::string msg = "model \"" + model + "\" is not available to this key. ";
+        if (models.empty()) {
+            msg += "The provider returned no models at all.";
+        } else {
+            std::sort(models.begin(), models.end());
+            msg += "Available: ";
+            const size_t show = std::min<size_t>(models.size(), 8);
+            for (size_t i = 0; i < show; ++i) {
+                if (i) msg += ", ";
+                msg += models[i];
+            }
+            if (models.size() > show)
+                msg += ", ... (" + std::to_string(models.size()) + " total)";
+        }
+        *err = msg;
+    }
+    return false;
 }
 
 // ── Audio transcription (Groq Whisper) ────────────────────────────────────────

@@ -73,7 +73,7 @@ void ChatServer::run()
     std::signal(SIGINT,  on_signal);
     std::signal(SIGTERM, on_signal);
 
-    svr_.set_payload_max_length(10 * 1024 * 1024 + 4096);
+    svr_.set_payload_max_length(config::kMaxPayloadBytes);
 
     // ── GET /health ────────────────────────────────────────────────────────────
     svr_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
@@ -199,7 +199,7 @@ void ChatServer::run()
 
         std::string title;
         try {
-            title = engine_->generate(ctx, 300, 0.3f);
+            title = engine_->generate(ctx, config::kTitleMaxTokens, 0.3f);
         } catch (const std::exception& e) {
             res.status = 502;
             res.set_content(json{{"error", std::string("title generation failed: ") + e.what()}}.dump(),

@@ -2,6 +2,30 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <stdexcept>
+
+// Thrown by remote engines when a provider call fails. Carries the HTTP status
+// so callers can tell "this provider is broken right now" from "this request is
+// wrong and will fail everywhere".
+class ProviderError : public std::runtime_error {
+public:
+    // status 0 means the request never got a response (DNS, TLS, timeout).
+    ProviderError(int status, const std::string& message)
+        : std::runtime_error(message), status_(status) {}
+
+    int status() const noexcept { return status_; }
+
+    // Worth trying elsewhere: the model is gone (404), we are being throttled
+    // (429), the provider is failing (5xx), or we never reached it (0). A 400 or
+    // 401 is about this request or this key and would fail identically on a
+    // second provider, so it is not retried.
+    bool worth_retrying_elsewhere() const noexcept {
+        return status_ == 0 || status_ == 404 || status_ == 429 || status_ >= 500;
+    }
+
+private:
+    int status_;
+};
 
 struct Message {
     std::string role;    // "user" or "assistant"

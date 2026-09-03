@@ -1,15 +1,17 @@
 #pragma once
+#include "config.h"
 #include "inference.h"
 #include <string>
+#include <vector>
 
 // Calls a Groq-compatible OpenAI chat/completions endpoint over HTTPS.
 // Drop-in replacement for InferenceEngine on the public route.
 class CloudInferenceEngine : public IInferenceEngine {
 public:
     CloudInferenceEngine(std::string api_key,
-                         std::string model = "openai/gpt-oss-120b",
-                         std::string host  = "api.groq.com",
-                         std::string vision_model = "qwen/qwen3.6-27b");
+                         std::string model = config::kCloudModel,
+                         std::string host  = config::kGroqHost,
+                         std::string vision_model = config::kVisionModel);
 
     std::string generate(const ContextLayers& ctx,
                          int              max_tokens  = 512,
@@ -24,11 +26,27 @@ private:
     std::string vision_model_;   // used when ctx carries an image
 };
 
+// ── Startup validation ────────────────────────────────────────────────────────
+// Asks the provider which models this key can reach. Returns false and fills
+// `err` on a connection failure, bad key, or unexpected response.
+bool cloud_list_models(const std::string& api_key,
+                       std::vector<std::string>* out,
+                       std::string* err = nullptr,
+                       const std::string& host = config::kGroqHost);
+
+// Verifies `model` is actually available to this key. On failure `err` explains
+// why and names some models that are available, so a retired or renamed model
+// is obvious at startup instead of on a user's first request.
+bool cloud_check_model(const std::string& api_key,
+                       const std::string& model,
+                       std::string* err = nullptr,
+                       const std::string& host = config::kGroqHost);
+
 // Transcribe an audio file via Groq's Whisper endpoint. Returns the transcript,
 // or empty string on failure (with an error message in `err` if provided).
 std::string groq_transcribe(const std::string& api_key,
                             const std::string& audio_bytes,
                             const std::string& filename,
-                            const std::string& model = "whisper-large-v3",
+                            const std::string& model = config::kWhisperModel,
                             std::string* err = nullptr,
-                            const std::string& host = "api.groq.com");
+                            const std::string& host = config::kGroqHost);

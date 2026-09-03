@@ -1,4 +1,5 @@
 #pragma once
+#include "config.h"
 #include "inference.h"
 #include "docstore.h"
 #include "rate_limit.h"
@@ -8,17 +9,19 @@
 #include <memory>
 
 struct ServerConfig {
-    std::string host         = "0.0.0.0";
-    int         port         = 8080;
-    std::string static_dir   = "./frontend";
-    int         max_tokens   = 512;
-    float       temperature  = 0.7f;
+    std::string host         = config::kHost;
+    int         port         = config::kPort;
+    std::string static_dir   = config::kStaticDir;
+    int         max_tokens   = config::kMaxTokens;
+    float       temperature  = config::kTemperature;
     std::string exe_dir;      // directory of the running binary
 
-    // Groq credentials/models for cloud chat + multimodal handling.
+    // Cloud credentials/models for chat + multimodal handling.
     std::string groq_api_key;                                   // enables vision + Whisper
-    std::string vision_model  = "meta-llama/llama-4-scout-17b-16e-instruct";
-    std::string whisper_model = "whisper-large-v3";
+    std::string cloud_model   = config::kCloudModel;
+    std::string vision_model  = config::kVisionModel;
+    std::string whisper_model = config::kWhisperModel;
+    std::string gemini_model  = config::kGeminiModel;   // fallback provider
 };
 
 class ChatServer {
@@ -45,6 +48,6 @@ private:
     ModuleContext                     module_ctx_;
 
     // Per-IP rate limiters for cost-incurring endpoints.
-    RateLimiter chat_limiter_  {25, 60};   // 25 messages / minute / IP
-    RateLimiter media_limiter_ {15, 60};   // 15 uploads or transcriptions / minute / IP
+    RateLimiter chat_limiter_  {config::kChatPerMinute,  config::kRateWindowSecs};
+    RateLimiter media_limiter_ {config::kMediaPerMinute, config::kRateWindowSecs};
 };

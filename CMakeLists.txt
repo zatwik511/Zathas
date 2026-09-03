@@ -81,6 +81,8 @@ add_executable(zathas_ai
   src/main.cpp
   src/inference.cpp
   src/cloud_inference.cpp
+  src/gemini_inference.cpp
+  src/failover_engine.cpp
   src/server.cpp
   src/pdf_extract.cpp
   src/pdf_render.cpp
