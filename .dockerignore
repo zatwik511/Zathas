@@ -12,5 +12,6 @@ frontend-react/dist/
 *.log
 models/
 scripts/
+tests/
 src/modules/impl/
 frontend-react/src/pages/extra/

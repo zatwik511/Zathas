@@ -24,7 +24,9 @@ COPY src ./src
 # CMake's post-build step copies this directory next to the binary, so it has to
 # exist even though the runtime image uses the freshly built one instead.
 COPY frontend ./frontend
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
+# Tests are not copied into the image context and the runtime does not need
+# them; CI runs them in its own job against a full checkout.
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DZATHAS_BUILD_TESTS=OFF \
     && cmake --build build --parallel "$(nproc)"
 
 # ── 3. Runtime ────────────────────────────────────────────────────────────────
