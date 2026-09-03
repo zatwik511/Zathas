@@ -30,6 +30,8 @@ frontend-react/dist/
 # IDE / OS
 .vscode/
 .vs/
+.idea/
+*.swp
 *.user
 Thumbs.db
 .DS_Store

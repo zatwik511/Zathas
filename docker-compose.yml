@@ -1,0 +1,20 @@
+services:
+  zathas:
+    build: .
+    image: zathas:local
+    ports:
+      - "8080:8080"
+    environment:
+      # Read from your shell or a .env file sitting next to this compose file.
+      # The server reads the process environment when no --env file is given.
+      GROQ_API_KEY:  "${GROQ_API_KEY:?set GROQ_API_KEY in your environment or a .env file}"
+      CLOUD_MODEL:   "${CLOUD_MODEL:-openai/gpt-oss-120b}"
+      VISION_MODEL:  "${VISION_MODEL:-qwen/qwen3.6-27b}"
+      WHISPER_MODEL: "${WHISPER_MODEL:-whisper-large-v3}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

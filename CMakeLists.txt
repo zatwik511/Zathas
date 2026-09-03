@@ -106,6 +106,19 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/modules/impl/modules.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/src/modules/impl/modules.cmake)
 endif()
 
+# ── Tests ─────────────────────────────────────────────────────────────────────
+# Covers the pieces that have actually broken: the streaming parser, title
+# handling, and the abuse limits. No test framework - plain assertions, so the
+# test build has no dependency the server does not already have.
+option(ZATHAS_BUILD_TESTS "Build the unit tests" ON)
+if(ZATHAS_BUILD_TESTS)
+  enable_testing()
+  add_executable(zathas_tests tests/test_main.cpp)
+  target_include_directories(zathas_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(zathas_tests PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME unit COMMAND zathas_tests)
+endif()
+
 # Copy frontend files next to the binary after build
 add_custom_command(TARGET zathas_ai POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory

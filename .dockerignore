@@ -1,0 +1,16 @@
+# Keep the build context small and never ship secrets or host build output.
+.git
+.github
+build/
+build-*/
+frontend-react/node_modules/
+frontend-react/dist/
+.env
+*.pem
+*.key
+*.gguf
+*.log
+models/
+scripts/
+src/modules/impl/
+frontend-react/src/pages/extra/

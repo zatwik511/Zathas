@@ -114,23 +114,27 @@ int main(int argc, char* argv[])
         else { std::cerr << "Unknown option: " << arg << "\n"; print_usage(argv[0]); return 1; }
     }
 
-    // ── Read .env ──────────────────────────────────────────────────────────────
-    if (model_path.empty())
-        model_path = read_env_file(env_file, "MODEL_PATH");
-    if (model_path.empty())
-        if (const char* v = std::getenv("MODEL_PATH")) model_path = v;
-    if (lora_path.empty())
-        lora_path = read_env_file(env_file, "LORA_PATH");
-
-    const std::string groq_api_key = read_env_file(env_file, "GROQ_API_KEY");
-    srv_cfg.groq_api_key = groq_api_key;   // enables vision + voice
-
-    // Model names are overridable because providers retire them without notice.
-    // Anything left unset falls back to the defaults in config.h.
+    // ── Read configuration ─────────────────────────────────────────────────────
+    // Every key is looked up in the .env file first, then the process
+    // environment. The environment fallback is what makes container and
+    // systemd deployments work, where config arrives as env vars and there is
+    // no .env file on disk at all.
+    auto env_value = [&](const char* key) -> std::string {
+        std::string v = read_env_file(env_file, key);
+        if (v.empty())
+            if (const char* e = std::getenv(key)) v = e;
+        return v;
+    };
     auto env_or_default = [&](const char* key, const char* fallback) {
-        const std::string v = read_env_file(env_file, key);
+        const std::string v = env_value(key);
         return v.empty() ? std::string(fallback) : v;
     };
+
+    if (model_path.empty()) model_path = env_value("MODEL_PATH");
+    if (lora_path.empty())  lora_path  = env_value("LORA_PATH");
+
+    const std::string groq_api_key = env_value("GROQ_API_KEY");
+    srv_cfg.groq_api_key = groq_api_key;   // enables vision + voice
     srv_cfg.cloud_model   = env_or_default("CLOUD_MODEL",   config::kCloudModel);
     srv_cfg.vision_model  = env_or_default("VISION_MODEL",  config::kVisionModel);
     srv_cfg.whisper_model = env_or_default("WHISPER_MODEL", config::kWhisperModel);

@@ -4,6 +4,7 @@
 #include "media_ingest.h"
 #include "office_extract.h"
 #include "cloud_inference.h"
+#include "title_util.h"
 #include "modules/module.h"
 
 #include <httplib.h>
@@ -322,12 +323,15 @@ void ChatServer::run()
             return;
         }
 
-        // Sanitise: first line only, strip surrounding quotes/whitespace/trailing dot, cap length.
-        if (const auto nl = title.find('\n'); nl != std::string::npos) title = title.substr(0, nl);
-        const auto a = title.find_first_not_of(" \t\r\n\"'");
-        const auto b = title.find_last_not_of(" \t\r\n\"'.");
-        title = (a == std::string::npos) ? "" : title.substr(a, b - a + 1);
-        if (title.size() > 60) title = title.substr(0, 60);
+        title = title::sanitize(title);
+
+        // A model that spent its whole budget reasoning yields the parser's
+        // diagnostic text, which must never be saved as a conversation name.
+        // Returning empty lets the client keep its own default.
+        if (title::is_placeholder(title)) {
+            std::cerr << "[title] model produced no usable title; returning empty\n";
+            title.clear();
+        }
 
         res.set_content(json{{"title", title}}.dump(), "application/json");
     });
