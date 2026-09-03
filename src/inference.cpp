@@ -11,7 +11,8 @@
 InferenceEngine::InferenceEngine(const std::string& model_path,
                                  int n_ctx,
                                  int n_threads,
-                                 int n_gpu_layers)
+                                 int n_gpu_layers,
+                                 const std::string& lora_path)
 {
     llama_backend_init();
 
@@ -36,19 +37,34 @@ InferenceEngine::InferenceEngine(const std::string& model_path,
 
     vocab_ = llama_model_get_vocab(model_);
 
+    // Optional LoRA adapter. A failure here is non-fatal: log it and carry on
+    // with the base model rather than refusing to start.
+    if (!lora_path.empty()) {
+        lora_ = llama_adapter_lora_init(model_, lora_path.c_str());
+        if (!lora_) {
+            std::cerr << "[inference] Warning: failed to load LoRA adapter: "
+                      << lora_path << " — continuing with the base model\n";
+        } else {
+            llama_set_adapter_lora(ctx_, lora_, 1.0f);
+            std::cout << "[inference] LoRA adapter loaded: " << lora_path << "\n";
+        }
+    }
+
     std::cout << "[inference] Model loaded: " << model_path << "\n";
 }
 
 InferenceEngine::~InferenceEngine()
 {
-    if (ctx_)   { llama_free(ctx_);         ctx_   = nullptr; }
-    if (model_) { llama_free_model(model_); model_ = nullptr; }
+    if (lora_)  { llama_adapter_lora_free(lora_); lora_  = nullptr; }
+    if (ctx_)   { llama_free(ctx_);               ctx_   = nullptr; }
+    if (model_) { llama_free_model(model_);       model_ = nullptr; }
     llama_backend_free();
 }
 
 // ── Prompt builders ────────────────────────────────────────────────────────────
 
-// Prompt in Qwen ChatML format: system → optional document → current session.
+// Prompt in Qwen ChatML format:
+// system → background → document → prior sessions → current session.
 std::string InferenceEngine::build_prompt(const ContextLayers& ctx) const
 {
     std::ostringstream oss;
@@ -56,7 +72,15 @@ std::string InferenceEngine::build_prompt(const ContextLayers& ctx) const
     // 1. System prompt
     oss << "<|im_start|>system\n" << ctx.system_prompt << "<|im_end|>\n";
 
-    // 2. Uploaded document (if any)
+    // 2. Background knowledge (if any)
+    if (!ctx.background.empty()) {
+        oss << "<|im_start|>user\n"
+            << "<background>\n" << ctx.background << "\n</background><|im_end|>\n"
+            << "<|im_start|>assistant\n"
+            << "Understood. I have reviewed the background information.<|im_end|>\n";
+    }
+
+    // 3. Uploaded document (if any)
     if (!ctx.document.empty()) {
         const std::string doc_text = ctx.document.size() > 8000
             ? ctx.document.substr(0, 8000) + "\n[document truncated]"
@@ -67,14 +91,36 @@ std::string InferenceEngine::build_prompt(const ContextLayers& ctx) const
             << "Understood. I have read the uploaded document.<|im_end|>\n";
     }
 
-    // 3. Current session turns
+    // 4. Prior sessions, replayed verbatim
+    for (const auto& msg : ctx.prior_sessions) {
+        oss << "<|im_start|>" << msg.role << "\n" << msg.content << "<|im_end|>\n";
+    }
+
+    // 5. Current session turns
     for (const auto& msg : ctx.current_session) {
         oss << "<|im_start|>" << msg.role << "\n" << msg.content << "<|im_end|>\n";
     }
 
-    // 4. Assistant generation header
+    // 6. Assistant generation header
     oss << "<|im_start|>assistant\n";
     return oss.str();
+}
+
+// Convenience overload: a flat message list with a default system turn, for
+// utility calls (summarising, labelling) that carry no layered context. Reuses
+// the main generation path rather than duplicating the sampling loop.
+std::string InferenceEngine::generate(const std::vector<Message>& history,
+                                      int   max_tokens,
+                                      float temperature,
+                                      const TokenCallback& on_token,
+                                      const DoneCallback&  on_done)
+{
+    ContextLayers ctx;
+    ctx.system_prompt   = "You are Zathas, an AI assistant. "
+                          "Your own name is Zathas — not the user's name. "
+                          "Be concise and helpful. Never break character.";
+    ctx.current_session = history;
+    return generate(ctx, max_tokens, temperature, on_token, on_done);
 }
 
 // ── Generation ─────────────────────────────────────────────────────────────────

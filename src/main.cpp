@@ -40,6 +40,7 @@ static void print_usage(const char* prog)
         << "  " << prog << " [options]\n\n"
         << "Options:\n"
         << "  --model       <path>   Path to a local .gguf model file (optional)\n"
+        << "  --lora        <path>   GGUF LoRA adapter for the local model (optional)\n"
         << "                         (required only if GROQ_API_KEY is not set)\n"
         << "  --port        <int>    HTTP port to listen on        (default: 8080)\n"
         << "  --host        <addr>   Host address                  (default: 0.0.0.0)\n"
@@ -60,6 +61,7 @@ static void print_usage(const char* prog)
 int main(int argc, char* argv[])
 {
     std::string model_path;
+    std::string lora_path;
     std::string env_file    = ".env";
     ServerConfig srv_cfg;
     int n_ctx        = 4096;
@@ -78,6 +80,7 @@ int main(int argc, char* argv[])
         };
 
         if      (arg == "--model")        model_path           = next();
+        else if (arg == "--lora")         lora_path            = next();
         else if (arg == "--port")         srv_cfg.port         = std::stoi(next());
         else if (arg == "--host")         srv_cfg.host         = next();
         else if (arg == "--ctx")          n_ctx                = std::stoi(next());
@@ -134,7 +137,7 @@ int main(int argc, char* argv[])
         if (!model_path.empty()) {
             std::cout << "[main] Loading local model: " << model_path << "\n";
             local_engine = std::make_shared<InferenceEngine>(
-                model_path, n_ctx, n_threads, n_gpu_layers);
+                model_path, n_ctx, n_threads, n_gpu_layers, lora_path);
         }
 
         // Chat engine — cloud (Groq) if a key is set, otherwise the local model.

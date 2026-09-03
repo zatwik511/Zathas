@@ -27,8 +27,14 @@ static json build_messages(const ContextLayers& ctx)
 {
     json msgs = json::array();
 
-    // System turn
-    msgs.push_back({{"role", "system"}, {"content", ctx.system_prompt}});
+    // System turn, with any background knowledge folded in.
+    std::string sys = ctx.system_prompt;
+    if (!ctx.background.empty()) sys += "\n\n" + ctx.background;
+    msgs.push_back({{"role", "system"}, {"content", sys}});
+
+    // Prior sessions, replayed verbatim ahead of the current conversation.
+    for (const auto& m : ctx.prior_sessions)
+        msgs.push_back({{"role", m.role}, {"content", m.content}});
 
     // Document injection. Frame it as an attached file whose text has already
     // been extracted for the model, so it uses the content directly instead of
