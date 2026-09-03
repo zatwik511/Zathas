@@ -21,7 +21,6 @@ struct ServerConfig {
     std::string cloud_model   = config::kCloudModel;
     std::string vision_model  = config::kVisionModel;
     std::string whisper_model = config::kWhisperModel;
-    std::string gemini_model  = config::kGeminiModel;   // fallback provider
 };
 
 class ChatServer {

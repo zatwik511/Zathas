@@ -1,8 +1,6 @@
 #include "config.h"
 #include "inference.h"
 #include "cloud_inference.h"
-#include "gemini_inference.h"
-#include "failover_engine.h"
 #include "server.h"
 
 #include <iostream>
@@ -136,11 +134,7 @@ int main(int argc, char* argv[])
     srv_cfg.cloud_model   = env_or_default("CLOUD_MODEL",   config::kCloudModel);
     srv_cfg.vision_model  = env_or_default("VISION_MODEL",  config::kVisionModel);
     srv_cfg.whisper_model = env_or_default("WHISPER_MODEL", config::kWhisperModel);
-    srv_cfg.gemini_model  = env_or_default("GEMINI_MODEL",  config::kGeminiModel);
     const std::string& cloud_model = srv_cfg.cloud_model;
-
-    // Optional second provider. When set, chat fails over to it.
-    const std::string gemini_api_key = read_env_file(env_file, "GEMINI_API_KEY");
 
     // Directory of this executable — lets components locate sibling tools and
     // data files regardless of the working directory the server was started in.
@@ -159,9 +153,8 @@ int main(int argc, char* argv[])
             srv_cfg.exe_dir = std::filesystem::path(exe_path).parent_path().string();
     }
 
-    if (model_path.empty() && groq_api_key.empty() && gemini_api_key.empty()) {
-        std::cerr << "Error: Need a local model (--model <path>) or an API key "
-                     "(GROQ_API_KEY or GEMINI_API_KEY) in .env\n\n";
+    if (model_path.empty() && groq_api_key.empty()) {
+        std::cerr << "Error: Need either --model <path> or GROQ_API_KEY in .env\n\n";
         print_usage(argv[0]);
         return 1;
     }
@@ -208,28 +201,6 @@ int main(int argc, char* argv[])
                       << available.size() << " models reachable)\n";
     }
 
-    // The fallback provider only warns: losing it costs resilience, not service.
-    if (!gemini_api_key.empty() && !skip_checks) {
-        std::vector<std::string> available;
-        std::string err;
-        if (!gemini_list_models(gemini_api_key, &available, &err)) {
-            std::cerr << "[warn]  Fallback provider unusable: " << err << "\n";
-        } else if (std::find(available.begin(), available.end(), srv_cfg.gemini_model)
-                       == available.end()) {
-            std::cerr << "[warn]  Fallback model \"" << srv_cfg.gemini_model
-                      << "\" not available to this key";
-            if (!available.empty()) {
-                std::sort(available.begin(), available.end());
-                std::cerr << ". Available include: ";
-                for (size_t i = 0; i < std::min<size_t>(available.size(), 5); ++i)
-                    std::cerr << (i ? ", " : "") << available[i];
-            }
-            std::cerr << ". Set GEMINI_MODEL in " << env_file << ".\n";
-        } else {
-            std::cout << "[main] Fallback provider verified (" << srv_cfg.gemini_model << ")\n";
-        }
-    }
-
     // ── Boot ───────────────────────────────────────────────────────────────────
     std::cout << "=== Zathas AI ===\n";
 
@@ -242,31 +213,12 @@ int main(int argc, char* argv[])
                 model_path, n_ctx, n_threads, n_gpu_layers, lora_path);
         }
 
-        // Chat engine. With both cloud providers configured, requests go to Groq
-        // and fall back to Gemini when Groq reports the model is gone, throttles
-        // us, or fails outright.
-        std::shared_ptr<IInferenceEngine> groq_engine;
-        std::shared_ptr<IInferenceEngine> gemini_engine;
-
+        // Chat engine — cloud if a key is set, otherwise the local model.
+        std::shared_ptr<IInferenceEngine> engine;
         if (!groq_api_key.empty()) {
             std::cout << "[main] Inference: Groq API (" << cloud_model << ")\n";
-            groq_engine = std::make_shared<CloudInferenceEngine>(
+            engine = std::make_shared<CloudInferenceEngine>(
                 groq_api_key, cloud_model, config::kGroqHost, srv_cfg.vision_model);
-        }
-        if (!gemini_api_key.empty()) {
-            gemini_engine = std::make_shared<GeminiInferenceEngine>(
-                gemini_api_key, srv_cfg.gemini_model);
-        }
-
-        std::shared_ptr<IInferenceEngine> engine;
-        if (groq_engine && gemini_engine) {
-            engine = std::make_shared<FailoverEngine>(groq_engine, gemini_engine,
-                                                      "groq", "gemini");
-        } else if (groq_engine) {
-            engine = groq_engine;
-        } else if (gemini_engine) {
-            std::cout << "[main] Inference: Gemini API (" << srv_cfg.gemini_model << ")\n";
-            engine = gemini_engine;
         } else {
             std::cout << "[main] Inference: local model\n";
             engine = local_engine;

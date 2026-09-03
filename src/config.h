@@ -12,17 +12,12 @@
 
 namespace config {
 
-// ── Primary provider (Groq) ───────────────────────────────────────────────────
+// ── Cloud provider (Groq) ─────────────────────────────────────────────────────
 inline constexpr const char* kGroqHost     = "api.groq.com";
 inline constexpr const char* kCloudModel   = "openai/gpt-oss-120b";
 inline constexpr const char* kVisionModel  = "qwen/qwen3.6-27b";
 inline constexpr const char* kWhisperModel = "whisper-large-v3";
 
-// ── Fallback provider (Google Gemini) ─────────────────────────────────────────
-// Used only when GEMINI_API_KEY is set. Chat falls back to this when the
-// primary reports the model is gone, throttles us, or fails outright.
-inline constexpr const char* kGeminiHost  = "generativelanguage.googleapis.com";
-inline constexpr const char* kGeminiModel = "gemini-2.0-flash";
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 inline constexpr const char* kHost      = "0.0.0.0";
