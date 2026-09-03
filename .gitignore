@@ -5,6 +5,9 @@ build-*/
 # Deployment-supplied server modules (see src/modules/module.h)
 src/modules/impl/
 
+# Deployment-supplied frontend pages (see frontend-react/src/main.jsx)
+frontend-react/src/pages/extra/
+
 # Logs
 *.log
 
