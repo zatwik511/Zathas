@@ -57,4 +57,9 @@ void register_routes(httplib::Server& svr, const ModuleContext& ctx);
 // Returns an empty string when no modules are active.
 std::string active_modules();
 
+// Called once after the server has stopped accepting requests, before exit.
+// Cleanup point for modules that own persistent state and need to flush or
+// compact it. The default implementation does nothing.
+void on_shutdown();
+
 }   // namespace server_modules

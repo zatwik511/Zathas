@@ -406,5 +406,9 @@ void ChatServer::run()
 
     svr_.listen(cfg_.host, cfg_.port);
 
+    // Past this point the server has stopped accepting requests; let modules
+    // flush any state they own before the process exits.
+    server_modules::on_shutdown();
+
     std::cout << "[server] Goodbye.\n";
 }

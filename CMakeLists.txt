@@ -20,8 +20,17 @@ FetchContent_Declare(
 )
 set(LLAMA_BUILD_TESTS     OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER    OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_COMMON    OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
+
+# Building llama-finetune lets you produce LoRA adapters to use with --lora.
+# It pulls in all of llama.cpp's examples, so it is off by default.
+option(ZATHAS_BUILD_FINETUNE "Build the llama-finetune binary for LoRA training" OFF)
+if(ZATHAS_BUILD_FINETUNE)
+  set(LLAMA_BUILD_COMMON   ON  CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_EXAMPLES ON  CACHE BOOL "" FORCE)
+else()
+  set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+endif()
 FetchContent_MakeAvailable(llama_cpp)
 
 # ── OpenSSL (for cloud inference HTTPS calls) ─────────────────────────────────

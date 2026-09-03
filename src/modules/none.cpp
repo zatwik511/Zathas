@@ -15,4 +15,9 @@ std::string active_modules()
     return "";
 }
 
+void on_shutdown()
+{
+    // Intentionally empty.
+}
+
 }   // namespace server_modules
