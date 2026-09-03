@@ -1,0 +1,15 @@
+# Line endings are pinned per file type rather than left to each contributor's
+# git config. A shell script committed with CRLF fails on Linux with an opaque
+# "bad interpreter" error, which is a miserable thing to debug during a deploy.
+
+*.sh    text eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary assets must never be line-ending converted.
+*.gguf  binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.pdf   binary
