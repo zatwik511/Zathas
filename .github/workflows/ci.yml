@@ -88,10 +88,17 @@ jobs:
           docker run -d --name zathas -p 8080:8080 \
             -e GROQ_API_KEY=ci-placeholder-not-a-real-key \
             zathas:ci --skip-checks --host 0.0.0.0 --static-dir /app/frontend
+          ok=0
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8080/api/health; then echo; ok=1; break; fi
+            # A container that has already exited is never going to answer.
+            # Stop waiting and let the logs below say why it died.
+            if [ "$(docker inspect -f '{{.State.Running}}' zathas)" != "true" ]; then
+              echo "Container exited before it served a request" >&2
+              break
+            fi
             sleep 1
           done
           docker logs zathas
-          test "${ok:-0}" = "1"
           docker rm -f zathas
+          test "$ok" = "1"

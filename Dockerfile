@@ -26,15 +26,25 @@ COPY src ./src
 COPY frontend ./frontend
 # Tests are not copied into the image context and the runtime does not need
 # them; CI runs them in its own job against a full checkout.
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DZATHAS_BUILD_TESTS=OFF \
+#
+# BUILD_SHARED_LIBS=OFF links llama/ggml into the binary. On Linux they default
+# to shared objects that land in the build tree, and the runtime stage copies
+# only the executable - so a shared build produces an image that builds fine
+# and then dies on startup with "libllama.so: cannot open shared object file".
+# Linking statically keeps the runtime stage a single self-contained binary.
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
+        -DZATHAS_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF \
     && cmake --build build --parallel "$(nproc)"
 
 # ── 3. Runtime ────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
+# libgomp1 is ggml's OpenMP runtime. Static linking does not absorb it, and the
+# slim base does not carry it - the build stage only has it via build-essential.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 zlib1g \
         poppler-utils \
         curl \
+        libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 zathas
 
