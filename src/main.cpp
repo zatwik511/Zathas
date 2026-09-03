@@ -9,6 +9,13 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <memory>
+#include <filesystem>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 // ── Simple .env parser ─────────────────────────────────────────────────────────
 static std::string read_env_file(const std::string& path, const std::string& key)
@@ -95,6 +102,23 @@ int main(int argc, char* argv[])
     std::string cloud_model = read_env_file(env_file, "CLOUD_MODEL");
     if (cloud_model.empty()) cloud_model = "openai/gpt-oss-120b";
 
+    // Directory of this executable — lets components locate sibling tools and
+    // data files regardless of the working directory the server was started in.
+    {
+        std::string exe_path;
+#ifdef _WIN32
+        char buf[MAX_PATH];
+        GetModuleFileNameA(NULL, buf, MAX_PATH);
+        exe_path = buf;
+#else
+        char buf[4096] = {};
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0) exe_path = std::string(buf, len);
+#endif
+        if (!exe_path.empty())
+            srv_cfg.exe_dir = std::filesystem::path(exe_path).parent_path().string();
+    }
+
     if (model_path.empty() && groq_api_key.empty()) {
         std::cerr << "Error: Need either --model <path> or GROQ_API_KEY in .env\n\n";
         print_usage(argv[0]);
@@ -123,7 +147,7 @@ int main(int argc, char* argv[])
             engine = local_engine;
         }
 
-        ChatServer server(engine, srv_cfg);
+        ChatServer server(engine, srv_cfg, local_engine);
         server.run();
     } catch (const std::exception& e) {
         std::cerr << "[fatal] " << e.what() << "\n";

@@ -1,5 +1,9 @@
 # Build output
 build/
+build-*/
+
+# Deployment-supplied server modules (see src/modules/module.h)
+src/modules/impl/
 
 # Logs
 *.log

@@ -4,6 +4,7 @@
 #include "media_ingest.h"
 #include "office_extract.h"
 #include "cloud_inference.h"
+#include "modules/module.h"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -52,8 +53,10 @@ static std::vector<Message> parse_history(const json& j)
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
 ChatServer::ChatServer(std::shared_ptr<IInferenceEngine> engine,
-                       const ServerConfig& config)
+                       const ServerConfig& config,
+                       std::shared_ptr<IInferenceEngine> local_engine)
     : engine_(std::move(engine)),
+      local_engine_(std::move(local_engine)),
       cfg_(config)
 {
     std::cout << "[server] Chat engine: " << (engine_ ? "ready" : "none") << "\n";
@@ -364,6 +367,22 @@ void ChatServer::run()
         }
         }
     });
+
+    // ── Optional server modules ────────────────────────────────────────────────
+    // Mounted after the core API and before the static handler, so a module can
+    // add routes but cannot shadow the built-in endpoints. Default build: none.
+    {
+        module_ctx_.engine       = engine_;
+        module_ctx_.local_engine = local_engine_;
+        module_ctx_.config       = &cfg_;
+        module_ctx_.doc_store    = &doc_store_;
+        module_ctx_.exe_dir      = cfg_.exe_dir;
+        server_modules::register_routes(svr_, module_ctx_);
+
+        const std::string active = server_modules::active_modules();
+        if (!active.empty())
+            std::cout << "[server] Modules: " << active << "\n";
+    }
 
     // ── Serve static frontend files ────────────────────────────────────────────
     svr_.set_mount_point("/", cfg_.static_dir);

@@ -52,6 +52,21 @@ FetchContent_MakeAvailable(nlohmann_json)
 # Install via MSYS2: pacman -S mingw-w64-ucrt-x86_64-zlib
 find_package(ZLIB REQUIRED)
 
+# ── Optional server modules ───────────────────────────────────────────────────
+# A deployment may drop .cpp files into src/modules/impl/ to mount extra routes
+# (see src/modules/module.h). When that directory contains sources they are
+# built in place of the default no-op, so a plain checkout always builds and
+# runs cleanly with nothing extra to install.
+file(GLOB ZATHAS_MODULE_IMPL CONFIGURE_DEPENDS
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/modules/impl/*.cpp)
+if(ZATHAS_MODULE_IMPL)
+  set(ZATHAS_MODULE_SOURCES ${ZATHAS_MODULE_IMPL})
+  message(STATUS "Server modules: implementation found in src/modules/impl")
+else()
+  set(ZATHAS_MODULE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/modules/none.cpp)
+  message(STATUS "Server modules: none (default build)")
+endif()
+
 # ── Main executable ────────────────────────────────────────────────────────────
 add_executable(zathas_ai
   src/main.cpp
@@ -61,6 +76,7 @@ add_executable(zathas_ai
   src/pdf_extract.cpp
   src/pdf_render.cpp
   src/office_extract.cpp
+  ${ZATHAS_MODULE_SOURCES}
 )
 
 target_include_directories(zathas_ai PRIVATE
@@ -73,6 +89,13 @@ target_link_libraries(zathas_ai PRIVATE
   nlohmann_json::nlohmann_json
   ZLIB::ZLIB
 )
+
+# A module implementation may declare extra dependencies of its own by shipping
+# src/modules/impl/modules.cmake — included here, after the target exists, so it
+# can call find_package()/target_link_libraries() as needed.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/modules/impl/modules.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/src/modules/impl/modules.cmake)
+endif()
 
 # Copy frontend files next to the binary after build
 add_custom_command(TARGET zathas_ai POST_BUILD
